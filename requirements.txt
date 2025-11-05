@@ -1,1 +1,3 @@
 garminconnect==0.2.15
+garth==0.4.46
+pydantic<2.8
