@@ -1,43 +1,57 @@
-import os, json, base64
+# scripts/fetch_garmin.py
+import os
+import json
+import base64
 from pathlib import Path
+
 import garth
 from garminconnect import Garmin
 
-def write_from_env(env_name, path):
+
+def write_from_b64(env_name: str, target: Path) -> bool:
     b64 = os.environ.get(env_name)
     if not b64:
         return False
     data = json.loads(base64.b64decode(b64).decode())
-    path.write_text(json.dumps(data))
+    target.write_text(json.dumps(data))
     return True
 
+
 def get_client():
-    tmp = Path("/tmp/garth_session")
-    tmp.mkdir(parents=True, exist_ok=True)
+    session_dir = Path("/tmp/garth_session")
+    session_dir.mkdir(parents=True, exist_ok=True)
 
-    # oauth1 + garth_session use the same data
-    wrote1 = write_from_env("GARMIN_OAUTH1_B64", tmp / "oauth1_token.json")
-    wrote2 = write_from_env("GARMIN_OAUTH2_B64", tmp / "oauth2_token.json")
-    if wrote1:
-        (tmp / "garth_session.json").write_text((tmp / "oauth1_token.json").read_text())
+    has_oauth1 = write_from_b64("GARMIN_OAUTH1_B64", session_dir / "oauth1_token.json")
+    has_oauth2 = write_from_b64("GARMIN_OAUTH2_B64", session_dir / "oauth2_token.json")
 
-    if wrote1 or wrote2:
-        garth.client.load(str(tmp))
+    # your local dump also had garth_session.json, and it was the same as oauth1
+    if has_oauth1:
+        (session_dir / "garth_session.json").write_text(
+            (session_dir / "oauth1_token.json").read_text()
+        )
+
+    if has_oauth1 or has_oauth2:
+        # 🔴 the important part: use garth.resume, not client.load
+        garth.resume(str(session_dir))
         return Garmin()
 
-    user, pw = os.getenv("GARMIN_USERNAME"), os.getenv("GARMIN_PASSWORD")
+    # optional fallback
+    user = os.getenv("GARMIN_USERNAME")
+    pw = os.getenv("GARMIN_PASSWORD")
     if user and pw:
         g = Garmin(user, pw)
         g.login()
         return g
 
-    raise RuntimeError("No tokens or credentials")
+    raise RuntimeError("No tokens and no credentials available")
+
 
 def main():
     client = get_client()
-    acts = client.get_activities(0, 5)
-    for a in acts:
+    activities = client.get_activities(0, 5)
+    for a in activities:
         print(f"{a['startTimeLocal']} - {a['activityName']} - {a.get('distance', 0)}m")
+
 
 if __name__ == "__main__":
     main()
